@@ -5041,3 +5041,230 @@ function V8_installDomFallback(){
 }
 // ===== APEX-PROTECT-END (v8-dom-fallback) =====
 </script>
+<script>
+// ===== APEX-PROTECT-BEGIN (v9-loader) =====
+(function(){
+  if (window.APEX_V9?.active) return;
+  const APEX_V9 = { active:true, version:'9' };
+  Object.defineProperty(window,'APEX_V9',{value:Object.freeze(APEX_V9)});
+  const ready = fn => (document.readyState==='complete') ? setTimeout(fn,0) : window.addEventListener('load',fn,{once:true});
+  ready(()=>{ try{ V9_install(); }catch(e){} });
+  function V9_install(){
+    try{ V9_bindPools(); }catch(e){}
+    try{ V9_installPolicies(); }catch(e){}
+    try{ V9_hookGenerator(); }catch(e){}
+    try{ V9_hookMatcher(); }catch(e){}
+    try{ V9_domFallback(); }catch(e){}
+  }
+})();
+// ===== APEX-PROTECT-END (v9-loader) =====
+</script>
+
+<script>
+// ===== APEX-PROTECT-BEGIN (v9-bind-pools) =====
+function V9_bindPools(){
+  // Reuse V8 structures you already appended; if absent, bail quietly.
+  const P = window.APEX_V8_POOLS, M = window.APEX_V8_MAPS;
+  window.APEX_V9_POOLS = P || null;
+  window.APEX_V9_MAPS  = M || null;
+}
+// ===== APEX-PROTECT-END (v9-bind-pools) =====
+</script>
+
+<script>
+// ===== APEX-PROTECT-BEGIN (v9-policies) =====
+function V9_installPolicies(){
+  if (window.__APEX_V9_POL__) return; window.__APEX_V9_POL__=true;
+
+  const P = window.APEX_V9_POOLS; if (!P) return;
+
+  // Level policies: how strongly to enforce pool usage, and recent reuse windows.
+  const POLICY = Object.freeze({
+    1:{ usePool:0.95, cooldown:6, rr:true },
+    2:{ usePool:0.90, cooldown:6, rr:true },
+    3:{ usePool:0.90, cooldown:6, rr:true },
+    4:{ usePool:0.85, cooldown:6, rr:true },
+    5:{ usePool:0.85, cooldown:6, rr:true },
+    6:{ usePool:0.80, cooldown:8, rr:true },
+    7:{ usePool:0.80, cooldown:8, rr:true },
+    8:{ usePool:0.75, cooldown:8, rr:true },
+    9:{ usePool:0.75, cooldown:8, rr:true },
+   10:{ usePool:0.70, cooldown:10, rr:true }
+  });
+
+  const S = {
+    lvl(){ try{ return Math.max(1,Math.min(10, Number(window.game?.difficultyLevel)||1)); }catch(e){ return 1; } },
+    up:s=>String(s||'').toUpperCase(),
+    rrBuf:{}, recent:{A:[],C:[],D:[]},
+    pushRecent(type, token, max){ const R=this.recent[type]; R.push(token); while(R.length>max) R.shift(); },
+    cooldownOK(type, token, cool){ const R=this.recent[type]; for (let i=R.length-1, k=0; i>=0 && k<cool; i--,k++) if (R[i]===token) return false; return true; },
+    rrPick(level, arr, kind){
+      const key = `L${level}_${kind}`;
+      if (!this.rrBuf[key] || this.rrBuf[key].length===0) this.rrBuf[key] = arr.slice();
+      return this.rrBuf[key].shift();
+    },
+    rndPick: arr => arr[Math.floor(Math.random()*arr.length)]
+  };
+
+  window.APEX_V9_POLICY = POLICY;
+  window.APEX_V9_SELECT = {
+    verb(level, baseVerb){
+      const pol = POLICY[level]||POLICY[1];
+      const pool = (window.APEX_V9_POOLS?.[level]?.actions||[]).map(S.up);
+      if (!pool.length || Math.random()>(pol.usePool||0)) return S.up(baseVerb||'PUSHES');
+      // enforce cooldown + rr
+      for (let i=0;i<50;i++){
+        const v = pol.rr ? S.rrPick(level, pool, 'A') : S.rndPick(pool);
+        if (S.cooldownOK('A', v, pol.cooldown)){ S.pushRecent('A',v, 24); return v; }
+      }
+      const v = S.rndPick(pool); S.pushRecent('A',v,24); return v;
+    },
+    conn(level, baseRel){
+      const pol = POLICY[level]||POLICY[1];
+      const pool = (window.APEX_V9_POOLS?.[level]?.conns||[]).map(S.up);
+      if (!pool.length || Math.random()>(pol.usePool||0)) return S.up(baseRel||'TOWARD');
+      for (let i=0;i<50;i++){
+        const c = pol.rr ? S.rrPick(level, pool, 'C') : S.rndPick(pool);
+        if (S.cooldownOK('C', c, pol.cooldown)){ S.pushRecent('C',c, 24); return c; }
+      }
+      const c = S.rndPick(pool); S.pushRecent('C',c,24); return c;
+    },
+    dir(level, baseDir){
+      const pol = POLICY[level]||POLICY[1];
+      const pool = (window.APEX_V9_POOLS?.[level]?.dirs||[]).map(S.up);
+      if (!pool.length || Math.random()>(pol.usePool||0)) return S.up(baseDir||'RIGHTWARD');
+      for (let i=0;i<50;i++){
+        const d = pol.rr ? S.rrPick(level, pool, 'D') : S.rndPick(pool);
+        if (S.cooldownOK('D', d, pol.cooldown)){ S.pushRecent('D',d, 24); return d; }
+      }
+      const d = S.rndPick(pool); S.pushRecent('D',d,24); return d;
+    }
+  };
+}
+// ===== APEX-PROTECT-END (v9-policies) =====
+</script>
+
+<script>
+// ===== APEX-PROTECT-BEGIN (v9-hook-generator) =====
+function V9_hookGenerator(){
+  if (window.__APEX_V9_GEN__) return; window.__APEX_V9_GEN__=true;
+  const Gen = window.CanonicalPremiseGenerator;
+  const SELECT = window.APEX_V9_SELECT;
+  if (!Gen || !Gen.prototype || !SELECT) return;
+
+  // Hook buildSurface if present; otherwise wrap generateNew’s surface assembly.
+  if (typeof Gen.prototype.buildSurface === 'function' && !Gen.prototype.__APEX_V9_DECOR__){
+    Gen.prototype.__APEX_V9_DECOR__ = true;
+    const base = Gen.prototype.buildSurface;
+    Gen.prototype.buildSurface = function(canonPlan, gates){
+      const res = base.call(this, canonPlan, gates) || {};
+      try {
+        const lvl = Math.max(1, Math.min(10, Number(window.game?.difficultyLevel)||1));
+        // Replace only middle tokens; keep subject/object & 5-word rule.
+        res.verb     = SELECT.verb(lvl, res.verb);
+        res.relation = SELECT.conn(lvl, res.relation);
+        res.tail     = SELECT.dir(lvl, res.tail);
+      } catch(e){}
+      return res;
+    };
+    return;
+  }
+
+  // Fallback: wrap generateNew to rewrite the surface string post-build
+  if (typeof Gen.prototype.generateNew === 'function' && !Gen.prototype.__APEX_V9_GN__){
+    Gen.prototype.__APEX_V9_GN__ = true;
+    const old = Gen.prototype.generateNew;
+    Gen.prototype.generateNew = function(...args){
+      const out = old.apply(this, args);
+      try{
+        const lvl = Math.max(1, Math.min(10, Number(window.game?.difficultyLevel)||1));
+        const words = (out?.surface||'').trim().split(/\s+/);
+        if (words.length===5){
+          words[1] = SELECT.verb(lvl, words[1]);
+          words[3] = SELECT.conn(lvl, words[3]);
+          words[4] = SELECT.dir(lvl, words[4]);
+          out.surface = words.join(' ');
+          out.surfaceTokens = words;
+        }
+      }catch(e){}
+      return out;
+    };
+  }
+}
+// ===== APEX-PROTECT-END (v9-hook-generator) =====
+</script>
+
+<script>
+// ===== APEX-PROTECT-BEGIN (v9-hook-matcher) =====
+function V9_hookMatcher(){
+  if (window.__APEX_V9_MATCH__) return; window.__APEX_V9_MATCH__=true;
+  const Gen = window.CanonicalPremiseGenerator;
+  const SELECT = window.APEX_V9_SELECT;
+  if (!Gen || !Gen.prototype || !Gen.prototype.generateMatching || !SELECT) return;
+
+  const old = Gen.prototype.generateMatching;
+  Gen.prototype.generateMatching = function(refIndex, registry){
+    const out = old.call(this, refIndex, registry);
+    try{
+      const lvl = Math.max(1, Math.min(10, Number(window.game?.difficultyLevel)||1));
+      const tokens = (out?.surface||'').trim().split(/\s+/);
+      if (tokens.length!==5) return out;
+
+      // Keep subject/object; resynthesize action/connection/direction from level pools.
+      const v = SELECT.verb(lvl, tokens[1]);
+      const c = SELECT.conn(lvl, tokens[3]);
+      const d = SELECT.dir(lvl, tokens[4]);
+
+      // Block trivial repeats (case/version differences)
+      const upper = s=>String(s||'').toUpperCase();
+      const origSig = [upper(tokens[1]), upper(tokens[3]), upper(tokens[4])].join('|');
+      let cand = [upper(v), upper(c), upper(d)].join('|');
+      let guard=0;
+      while (cand===origSig && guard<20){
+        guard++;
+        cand = [upper(SELECT.verb(lvl, tokens[1])), upper(SELECT.conn(lvl, tokens[3])), upper(SELECT.dir(lvl, tokens[4]))].join('|');
+      }
+      const [V,C,D] = cand.split('|');
+      tokens[1]=V; tokens[3]=C; tokens[4]=D;
+      out.surface = tokens.join(' ');
+      out.surfaceTokens = tokens;
+    }catch(e){}
+    return out;
+  };
+}
+// ===== APEX-PROTECT-END (v9-hook-matcher) =====
+</script>
+
+<script>
+// ===== APEX-PROTECT-BEGIN (v9-dom-fallback) =====
+function V9_domFallback(){
+  if (window.__APEX_V9_DOM__) return; window.__APEX_V9_DOM__=true;
+  const SELECT = window.APEX_V9_SELECT; if (!SELECT) return;
+
+  const up = s=>String(s||'').toUpperCase();
+  const lvl = ()=>Math.max(1, Math.min(10, Number(window.game?.difficultyLevel)||1));
+
+  const obs = new MutationObserver(muts=>{
+    muts.forEach(m=>{
+      (m.addedNodes||[]).forEach(n=>{
+        const el = n.nodeType===1 ? n : null; if (!el) return;
+        (el.querySelectorAll?.('*')||[]).forEach(node=>{
+          try{
+            const txt = node.textContent||'';
+            const w = txt.trim().split(/\s+/);
+            if (w.length===5){
+              const L = lvl();
+              w[1] = up(SELECT.verb(L, w[1]));
+              w[3] = up(SELECT.conn(L, w[3]));
+              w[4] = up(SELECT.dir (L, w[4]));
+              node.textContent = w.join(' ');
+            }
+          }catch(e){}
+        });
+      });
+    });
+  });
+  try{ obs.observe(document.body,{childList:true,subtree:true}); }catch(e){}
+}
+// ===== APEX-PROTECT-END (v9-dom-fallback) =====
+</script>
